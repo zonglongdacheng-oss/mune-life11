@@ -1,0 +1,3 @@
+import "./globals.css";
+export const metadata={title:"MUNE LIFE RPG",description:"人生の経営管理RPG / AI Coach",manifest:"/manifest.webmanifest"};
+export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="ja"><body>{children}<script dangerouslySetInnerHTML={{__html:`if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js"))}`}} /></body></html>}

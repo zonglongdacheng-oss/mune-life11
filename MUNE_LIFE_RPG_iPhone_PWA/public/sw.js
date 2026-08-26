@@ -1,0 +1,1 @@
+self.addEventListener("push",event=>{const d=event.data?.json()||{title:"MUNE LIFE RPG",body:"今日の人生クエストがあります"};event.waitUntil(self.registration.showNotification(d.title,{body:d.body,icon:"/icon-192.png"}))});
