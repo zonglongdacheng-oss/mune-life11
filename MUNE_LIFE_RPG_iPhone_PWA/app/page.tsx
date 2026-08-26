@@ -12,7 +12,24 @@ import {
 
 type Stats = Record<string, number>;
 
-const initialTasks = [
+type Task = {
+  text: string;
+  changes: Stats;
+  xpText: string;
+  done: boolean;
+};
+
+type ChatMessage = {
+  role: string;
+  text: string;
+};
+
+type EventRecord = {
+  reason: string;
+  date: string;
+};
+
+const initialTasks: [string, Stats, string][] = [
   ["トレーニング40〜60分", { BODY: 3 }, "BODY +3"],
   ["SNS/作品を1つ作る", { EXPRESSION: 3 }, "EXPRESSION +3"],
   ["家計を5分確認", { SELF_RELIANCE: 1 }, "SELF RELIANCE +1"],
@@ -31,26 +48,31 @@ const initialTasks = [
 
 export default function Home() {
   const [stats, setStats] = useState<Stats>({ ...DEFAULT_STATS });
-  const [tasks, setTasks] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [tab, setTab] = useState("HOME");
-  const [chat, setChat] = useState<{ role: string; text: string }[]>([]);
+
+  const [chat, setChat] = useState<ChatMessage[]>([]);
   const [q, setQ] = useState("");
   const [analysis, setAnalysis] = useState("");
+
   const [money, setMoney] = useState({
     income: 0,
     expense: 0,
     today: 0,
   });
+
   const [weight, setWeight] = useState("");
   const [waist, setWaist] = useState("");
   const [bodyFat, setBodyFat] = useState("");
+
   const [postCount, setPostCount] = useState(0);
-  const [events, setEvents] = useState<any[]>([]);
-  const [syncStatus, setSyncStatus] = useState("LOCAL");
+  const [events, setEvents] = useState<EventRecord[]>([]);
+  const [syncStatus] = useState("LOCAL");
 
   const total = Object.values(stats).reduce((a, b) => a + b, 0);
   const lv = level(stats);
   const avg = Math.round(total / 8);
+
   const days = Math.max(
     0,
     Math.ceil(
@@ -62,20 +84,37 @@ export default function Home() {
     const raw = localStorage.getItem("mune-rpg-v2");
 
     if (raw) {
-      const x = JSON.parse(raw);
+      try {
+        const x = JSON.parse(raw);
 
-      setStats(x.stats || DEFAULT_STATS);
-      setTasks(x.tasks || []);
-      setEvents(x.events || []);
-      setMoney(x.money || money);
-      setPostCount(x.postCount || 0);
-      setAnalysis(x.analysis || "");
+        setStats(x.stats || DEFAULT_STATS);
+        setTasks(x.tasks || []);
+        setEvents(x.events || []);
+        setMoney(
+          x.money || {
+            income: 0,
+            expense: 0,
+            today: 0,
+          }
+        );
+        setPostCount(x.postCount || 0);
+        setAnalysis(x.analysis || "");
+      } catch {
+        setTasks(
+          initialTasks.map(([text, changes, xpText]) => ({
+            text,
+            changes,
+            xpText,
+            done: false,
+          }))
+        );
+      }
     } else {
       setTasks(
-        initialTasks.map((x) => ({
-          text: x[0],
-          changes: x[1],
-          xpText: x[2],
+        initialTasks.map(([text, changes, xpText]) => ({
+          text,
+          changes,
+          xpText,
           done: false,
         }))
       );
@@ -101,7 +140,7 @@ export default function Home() {
       const n = { ...s };
 
       for (const [k, v] of Object.entries(changes)) {
-        n[k] = Math.min(100, (n[k] || 0) + (v as number));
+        n[k] = Math.min(100, (n[k] || 0) + v);
       }
 
       return n;
@@ -117,11 +156,11 @@ export default function Home() {
   };
 
   const complete = (i: number) => {
-    if (tasks[i].done) return;
+    if (!tasks[i] || tasks[i].done) return;
 
     const t = tasks[i];
-    const n = [...tasks];
 
+    const n = [...tasks];
     n[i] = {
       ...n[i],
       done: true,
@@ -170,7 +209,7 @@ export default function Home() {
         ...c,
         {
           role: "ai",
-          text: j.answer || j.error,
+          text: j.answer || j.error || "AIから回答を取得できませんでした。",
         },
       ]);
     } catch {
@@ -185,28 +224,36 @@ export default function Home() {
   };
 
   const daily = async () => {
-    const r = await fetch("/api/ai/daily", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        snapshot: {
-          stats,
-          tasks,
-          money,
-          postCount,
-          days,
+    try {
+      const r = await fetch("/api/ai/daily", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      }),
-    });
+        body: JSON.stringify({
+          snapshot: {
+            stats,
+            tasks,
+            money,
+            postCount,
+            days,
+          },
+        }),
+      });
 
-    const j = await r.json();
+      const j = await r.json();
 
-    setAnalysis(j.analysis || j.error || "");
+      setAnalysis(
+        j.analysis ||
+          j.error ||
+          "AI分析を取得できませんでした。"
+      );
+    } catch {
+      setAnalysis("AI分析に接続できませんでした。");
+    }
   };
 
-  const addTask = (t: any) =>
+  const addTask = (t: [string, Stats, string]) => {
     setTasks((x) => [
       {
         text: t[0],
@@ -216,6 +263,7 @@ export default function Home() {
       },
       ...x,
     ]);
+  };
 
   const nav = [
     "HOME",
@@ -287,7 +335,10 @@ export default function Home() {
                 {days}日
               </p>
 
-              <button className="btn gold" onClick={daily}>
+              <button
+                className="btn gold"
+                onClick={daily}
+              >
                 ☀️ 今日のAI分析を生成
               </button>
             </div>
@@ -297,10 +348,15 @@ export default function Home() {
                 <div className="card" key={k}>
                   <div className="row">
                     <b>{STAT_LABEL[k]}</b>
-                    <b className="gold">{rank(stats[k])}</b>
+
+                    <b className="gold">
+                      {rank(stats[k])}
+                    </b>
                   </div>
 
-                  <div className="big">{stats[k]}</div>
+                  <div className="big">
+                    {stats[k]}
+                  </div>
 
                   <div className="bar">
                     <i
@@ -326,8 +382,11 @@ export default function Home() {
                 {tasks
                   .filter((x) => !x.done)
                   .slice(0, 3)
-                  .map((t, i) => (
-                    <div className="quest" key={i}>
+                  .map((t) => (
+                    <div
+                      className="quest"
+                      key={t.text}
+                    >
                       <input
                         type="checkbox"
                         onChange={() =>
@@ -337,7 +396,10 @@ export default function Home() {
 
                       <div>
                         <b>{t.text}</b>
-                        <div className="tag">{t.xpText}</div>
+
+                        <div className="tag">
+                          {t.xpText}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -363,7 +425,8 @@ export default function Home() {
               <h2>CHARACTER</h2>
 
               <p>
-                総合Lv.{lv} / {rank(avg)} / {levelTitle(lv)}
+                総合Lv.{lv} / {rank(avg)} /{" "}
+                {levelTitle(lv)}
               </p>
             </div>
 
@@ -425,22 +488,31 @@ export default function Home() {
                     stats.CHARACTER >= 75 &&
                     stats.LIFE_EXPERIENCE >= 70,
                 ],
-              ].map((x) => (
-                <div
-                  className={
-                    "row " + (x[1] ? "" : "locked")
-                  }
-                  key={String(x[0])}
-                >
-                  <b>
-                    {x[1] ? "🔓" : "🔒"} {x[0]}
-                  </b>
+              ].map(([name, unlocked]) => {
+                const skillName = String(name);
+                const isUnlocked = Boolean(unlocked);
 
-                  <span>
-                    {x[1] ? "UNLOCKED" : "LOCKED"}
-                  </span>
-                </div>
-              ))}
+                return (
+                  <div
+                    className={
+                      "row " +
+                      (isUnlocked ? "" : "locked")
+                    }
+                    key={skillName}
+                  >
+                    <b>
+                      {isUnlocked ? "🔓" : "🔒"}{" "}
+                      {skillName}
+                    </b>
+
+                    <span>
+                      {isUnlocked
+                        ? "UNLOCKED"
+                        : "LOCKED"}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
@@ -451,7 +523,10 @@ export default function Home() {
               <h2>DAILY QUEST</h2>
 
               {tasks.map((t, i) => (
-                <div className="quest" key={i}>
+                <div
+                  className="quest"
+                  key={`${t.text}-${i}`}
+                >
                   <input
                     type="checkbox"
                     checked={t.done}
@@ -460,7 +535,10 @@ export default function Home() {
 
                   <div>
                     <b>{t.text}</b>
-                    <div className="tag">{t.xpText}</div>
+
+                    <div className="tag">
+                      {t.xpText}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -497,11 +575,13 @@ export default function Home() {
             </p>
 
             <div className="alert">
-              WORK / BODY / CREATION / CONNECTION / LIFE EXPERIENCE / REST / PERSONAL
+              WORK / BODY / CREATION / CONNECTION /
+              LIFE EXPERIENCE / REST / PERSONAL
             </div>
 
             <p className="muted">
-              本番版ではカレンダーから自動取り込みし、AIが「理想人生への投資時間」を毎朝分析します。
+              本番版ではカレンダーから自動取り込みし、
+              AIが「理想人生への投資時間」を毎朝分析します。
             </p>
           </div>
         )}
@@ -510,7 +590,9 @@ export default function Home() {
           <>
             <div className="grid">
               <div className="card">
-                <div className="muted">今月収入</div>
+                <div className="muted">
+                  今月収入
+                </div>
 
                 <div className="big green">
                   ¥{money.income.toLocaleString()}
@@ -518,7 +600,9 @@ export default function Home() {
               </div>
 
               <div className="card">
-                <div className="muted">今月支出</div>
+                <div className="muted">
+                  今月支出
+                </div>
 
                 <div className="big red">
                   ¥{money.expense.toLocaleString()}
@@ -526,11 +610,15 @@ export default function Home() {
               </div>
 
               <div className="card">
-                <div className="muted">収支</div>
+                <div className="muted">
+                  収支
+                </div>
 
                 <div className="big">
-                  ¥{(
-                    money.income - money.expense
+                  ¥
+                  {(
+                    money.income -
+                    money.expense
                   ).toLocaleString()}
                 </div>
               </div>
@@ -540,8 +628,10 @@ export default function Home() {
               <h2>お金の意思決定</h2>
 
               <p>
-                自由 / 挑戦 / 成長 / 経験 / CONNECTION /
-                EXPRESSION / 経済合理性 / 楽しさを各0〜5点で採点し、30点以上を強い候補とします。
+                自由 / 挑戦 / 成長 / 経験 /
+                CONNECTION / EXPRESSION /
+                経済合理性 / 楽しさを各0〜5点で採点し、
+                30点以上を強い候補とします。
               </p>
 
               <button
@@ -609,7 +699,9 @@ export default function Home() {
               <h3>2027/2 TARGET</h3>
 
               <p>
-                60〜63kg / 6〜9% / 腹囲70〜73cm / 肩・背中・上胸・腕を優先
+                60〜63kg / 6〜9% /
+                腹囲70〜73cm /
+                肩・背中・上胸・腕を優先
               </p>
             </div>
           </div>
@@ -619,7 +711,9 @@ export default function Home() {
           <div className="card">
             <h2>EXPRESSION</h2>
 
-            <div className="big">{postCount}</div>
+            <div className="big">
+              {postCount}
+            </div>
 
             <p>制作数</p>
 
@@ -663,7 +757,8 @@ export default function Home() {
             </button>
 
             <p className="muted">
-              旅・バイク・アクティビティ・歌・撮影・新しい場所など、人生そのものを経験値にする。
+              旅・バイク・アクティビティ・歌・撮影・新しい場所など、
+              人生そのものを経験値にする。
             </p>
           </div>
         )}
@@ -689,7 +784,8 @@ export default function Home() {
             </button>
 
             <p className="muted">
-              全国に「会いたい人」が増えるほどCONNECTIONが育つ。
+              全国に「会いたい人」が増えるほど
+              CONNECTIONが育つ。
             </p>
           </div>
         )}
@@ -711,20 +807,32 @@ export default function Home() {
                 "人生を仕事にした人",
                 money.income > 0,
               ],
-            ].map((x) => (
-              <div
-                className="row"
-                key={String(x[0])}
-              >
-                <b>
-                  {x[1] ? "🏆" : "🔒"} {x[0]}
-                </b>
+            ].map(([name, unlocked]) => {
+              const achievementName =
+                String(name);
+              const isUnlocked =
+                Boolean(unlocked);
 
-                <span>
-                  {x[1] ? "UNLOCKED" : "LOCKED"}
-                </span>
-              </div>
-            ))}
+              return (
+                <div
+                  className="row"
+                  key={achievementName}
+                >
+                  <b>
+                    {isUnlocked
+                      ? "🏆"
+                      : "🔒"}{" "}
+                    {achievementName}
+                  </b>
+
+                  <span>
+                    {isUnlocked
+                      ? "UNLOCKED"
+                      : "LOCKED"}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -740,7 +848,9 @@ export default function Home() {
               <div className="chat">
                 {chat.map((m, i) => (
                   <div
-                    className={"bubble " + m.role}
+                    className={
+                      "bubble " + m.role
+                    }
                     key={i}
                   >
                     {m.text}
@@ -754,9 +864,11 @@ export default function Home() {
                   onChange={(e) =>
                     setQ(e.target.value)
                   }
-                  onKeyDown={(e) =>
-                    e.key === "Enter" && ask()
-                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      ask();
+                    }
+                  }}
                   placeholder="今何をすべき？ / これ買うべき？"
                 />
 
@@ -772,7 +884,9 @@ export default function Home() {
             <div className="card">
               <h2>毎朝AI分析</h2>
 
-              <p>{analysis || "未生成"}</p>
+              <p>
+                {analysis || "未生成"}
+              </p>
 
               <button
                 className="btn gold"
